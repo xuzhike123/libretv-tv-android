@@ -43,7 +43,8 @@ private val THUMB_PALETTES = listOf(
 )
 
 private fun thumbBrush(id: String): Brush {
-    val palette = THUMB_PALETTES[id.hashCode() % THUMB_PALETTES.size]
+    val idx = Math.floorMod(id.hashCode(), THUMB_PALETTES.size)
+    val palette = THUMB_PALETTES[idx]
     return Brush.linearGradient(palette)
 }
 

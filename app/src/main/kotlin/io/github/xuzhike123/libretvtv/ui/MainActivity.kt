@@ -1,4 +1,4 @@
-package io.github.xuzhike123.libretvtv
+package io.github.xuzhike123.libretvtv.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
