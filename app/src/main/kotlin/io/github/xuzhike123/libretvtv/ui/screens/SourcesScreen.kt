@@ -15,9 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import io.github.xuzhike123.libretvtv.data.sourceItems
 import io.github.xuzhike123.libretvtv.ui.components.FocusableSurface
 import io.github.xuzhike123.libretvtv.ui.components.SectionHeader
@@ -29,7 +29,7 @@ import io.github.xuzhike123.libretvtv.ui.components.SectionHeader
 @Composable
 fun SourcesScreen(modifier: Modifier = Modifier) {
     val sources = sourceItems()
-    TvLazyColumn(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .padding(28.dp)
@@ -38,7 +38,7 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
             SectionHeader(title = "已配置片源", subtitle = "健康度 · 连续失败按阶梯时长停用")
         }
         item {
-            TvLazyRow(
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
@@ -78,7 +78,7 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
             SectionHeader(title = "远程订阅", subtitle = "LibreTV-SourceList JSON")
         }
         item {
-            TvLazyRow(
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {

@@ -14,8 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 
 /**
  * 通用横向条目行：详情页的选集、换源卡片都用它，
@@ -29,7 +29,7 @@ fun ChipRow(
     itemHeight: androidx.compose.ui.unit.Dp = 96.dp,
     onItemClick: (String) -> Unit = {}
 ) {
-    TvLazyRow2(
+    ChipLazyRow(
         modifier = modifier,
         onItemClick = onItemClick,
         labels = labels,
@@ -39,14 +39,14 @@ fun ChipRow(
 }
 
 @Composable
-private fun TvLazyRow2(
+private fun ChipLazyRow(
     labels: List<String>,
     modifier: Modifier,
     itemWidth: androidx.compose.ui.unit.Dp,
     itemHeight: androidx.compose.ui.unit.Dp,
     onItemClick: (String) -> Unit
 ) {
-    TvLazyRow(
+    LazyRow(
         modifier = modifier.height(itemHeight + 32.dp),
         horizontalArrangement = Arrangement.spacedBy(24.dp),
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 16.dp)

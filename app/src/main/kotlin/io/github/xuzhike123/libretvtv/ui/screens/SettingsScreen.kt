@@ -17,7 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
+import androidx.compose.foundation.lazy.LazyColumn
 import io.github.xuzhike123.libretvtv.data.AccentTheme
 import io.github.xuzhike123.libretvtv.data.BufferLevel
 import io.github.xuzhike123.libretvtv.data.CardStyle
@@ -44,7 +44,7 @@ fun SettingsScreen(
             .padding(28.dp),
         horizontalArrangement = Arrangement.spacedBy(40.dp)
     ) {
-        TvLazyColumn(modifier = Modifier.width(900.dp)) {
+        LazyColumn(modifier = Modifier.width(900.dp)) {
             item {
                 SectionHeader(title = "外观", subtitle = "参照 SmartTube 的 UI 选项")
             }

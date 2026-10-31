@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import io.github.xuzhike123.libretvtv.data.ContentRow
 import io.github.xuzhike123.libretvtv.data.UiSettings
 import io.github.xuzhike123.libretvtv.data.VideoItem
@@ -25,7 +25,7 @@ fun CatalogScreen(
     onVideoClick: (VideoItem) -> Unit
 ) {
     val firstRow = rows.firstOrNull()
-    TvLazyColumn(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 28.dp, vertical = 16.dp),

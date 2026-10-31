@@ -22,9 +22,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import io.github.xuzhike123.libretvtv.data.findVideo
 import io.github.xuzhike123.libretvtv.data.sourceItems
 import io.github.xuzhike123.libretvtv.ui.components.FocusableSurface
@@ -79,7 +79,7 @@ fun DetailScreen(
             )
         }
 
-        TvLazyColumn(modifier = Modifier.weight(1f)) {
+        LazyColumn(modifier = Modifier.weight(1f)) {
             item {
                 Text(
                     text = video.title,
@@ -150,7 +150,7 @@ fun DetailScreen(
             }
             item {
                 SectionHeader(title = "选集", subtitle = "共 24 集")
-                TvLazyRow(
+                LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
                     contentPadding = PaddingValues(vertical = 16.dp)
                 ) {
@@ -172,7 +172,7 @@ fun DetailScreen(
             }
             item {
                 SectionHeader(title = "换源测速", subtitle = "切换后保留当前集数位置")
-                TvLazyRow(
+                LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
                     contentPadding = PaddingValues(vertical = 16.dp)
                 ) {

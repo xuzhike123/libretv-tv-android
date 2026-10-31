@@ -20,9 +20,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import io.github.xuzhike123.libretvtv.data.liveChannels
 import io.github.xuzhike123.libretvtv.data.liveGroups
 import io.github.xuzhike123.libretvtv.ui.components.FocusableSurface
@@ -74,13 +74,13 @@ fun LiveScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        TvLazyColumn(modifier = Modifier.weight(1f)) {
+        LazyColumn(modifier = Modifier.weight(1f)) {
             item {
                 SectionHeader(title = selectedGroup, subtitle = "按 EPG 显示当前节目")
             }
             channels.chunked(4).forEach { rowChannels ->
                 item {
-                    TvLazyRow(
+                    LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
                         contentPadding = PaddingValues(vertical = 16.dp)
                     ) {

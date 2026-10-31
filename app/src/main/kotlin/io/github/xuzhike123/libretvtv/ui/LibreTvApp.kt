@@ -13,8 +13,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import androidx.navigation.popUpTo
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
 import io.github.xuzhike123.libretvtv.data.UiSettings
 import io.github.xuzhike123.libretvtv.data.favoriteRows
 import io.github.xuzhike123.libretvtv.data.historyRows
@@ -54,7 +54,6 @@ fun LibreTvApp() {
             onSelect = { screen ->
                 currentRoute = screen.route
                 navController.navigate(screen.route) {
-                    popUpTo(Screen.Home.route) { saveState = true }
                     launchSingleTop = true
                     restoreState = true
                 }
