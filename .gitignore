@@ -17,4 +17,5 @@ out/
 # 系统文件
 .DS_Store
 Thumbs.db
-screens/
+# 根目录下的测试截图目录（不要误伤源码目录 ui/screens/）
+/screens/
