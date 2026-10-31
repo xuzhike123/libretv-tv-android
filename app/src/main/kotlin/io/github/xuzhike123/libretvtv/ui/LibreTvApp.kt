@@ -15,19 +15,22 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
+import io.github.xuzhike123.libretvtv.data.ContentRow
+import io.github.xuzhike123.libretvtv.data.LocalStore
+import io.github.xuzhike123.libretvtv.data.PendingPlay
 import io.github.xuzhike123.libretvtv.data.UiSettings
-import io.github.xuzhike123.libretvtv.data.favoriteRows
-import io.github.xuzhike123.libretvtv.data.historyRows
-import io.github.xuzhike123.libretvtv.data.homeRows
+import io.github.xuzhike123.libretvtv.data.VideoItem
 import io.github.xuzhike123.libretvtv.ui.components.LibreTvNavRail
 import io.github.xuzhike123.libretvtv.ui.screens.CatalogScreen
 import io.github.xuzhike123.libretvtv.ui.screens.DetailScreen
+import io.github.xuzhike123.libretvtv.ui.screens.HomeScreen
 import io.github.xuzhike123.libretvtv.ui.screens.LiveScreen
 import io.github.xuzhike123.libretvtv.ui.screens.PlayerScreen
 import io.github.xuzhike123.libretvtv.ui.screens.SearchScreen
 import io.github.xuzhike123.libretvtv.ui.screens.SettingsScreen
 import io.github.xuzhike123.libretvtv.ui.screens.SourcesScreen
 import io.github.xuzhike123.libretvtv.ui.util.onTvKey
+import java.net.URLEncoder
 
 /**
  * 应用根布局：左侧 SmartTube 风格导航栏 + 右侧页面容器。
@@ -37,6 +40,16 @@ fun LibreTvApp() {
     val navController = rememberNavController()
     var settings by remember { mutableStateOf(UiSettings()) }
     var currentRoute by remember { mutableStateOf(Screen.Home.route) }
+
+    fun goto(route: String) {
+        currentRoute = route
+        navController.navigate(route) { launchSingleTop = true; restoreState = true }
+    }
+
+    val onVideoClick: (VideoItem) -> Unit = { video ->
+        val encoded = URLEncoder.encode(video.id, "UTF-8")
+        navController.navigate(Screen.Detail.createRoute(encoded))
+    }
 
     Row(
         modifier = Modifier
@@ -51,13 +64,7 @@ fun LibreTvApp() {
     ) {
         LibreTvNavRail(
             selectedRoute = currentRoute,
-            onSelect = { screen ->
-                currentRoute = screen.route
-                navController.navigate(screen.route) {
-                    launchSingleTop = true
-                    restoreState = true
-                }
-            }
+            onSelect = { screen -> goto(screen.route) }
         )
 
         NavHost(
@@ -66,25 +73,48 @@ fun LibreTvApp() {
             modifier = Modifier.weight(1f)
         ) {
             composable(Screen.Home.route) {
-                CatalogScreen(rows = homeRows(), settings = settings) { video ->
-                    navController.navigate(Screen.Detail.createRoute(video.id))
-                }
+                HomeScreen(
+                    settings = settings,
+                    onSearch = { goto(Screen.Search.route) },
+                    onVideoClick = onVideoClick
+                )
             }
             composable(Screen.Search.route) {
-                SearchScreen()
+                SearchScreen(settings = settings, onVideoClick = onVideoClick)
             }
             composable(Screen.Favorites.route) {
-                CatalogScreen(rows = favoriteRows(), settings = settings) { video ->
-                    navController.navigate(Screen.Detail.createRoute(video.id))
+                val items = LocalStore.getFavorites().map { (id, title) ->
+                    VideoItem(id = id, title = title, source = "收藏", duration = "")
                 }
+                CatalogScreen(
+                    rows = listOf(ContentRow(title = "我的收藏", subtitle = "仅保存在本机", items = items)),
+                    settings = settings,
+                    onVideoClick = onVideoClick
+                )
             }
             composable(Screen.History.route) {
-                CatalogScreen(rows = historyRows(), settings = settings) { video ->
-                    navController.navigate(Screen.Detail.createRoute(video.id))
+                val items = LocalStore.getHistory().map { h ->
+                    VideoItem(
+                        id = h.videoId,
+                        title = h.title,
+                        source = h.source,
+                        duration = if (h.durationMs > 0) "看到 ${(h.positionMs * 100 / h.durationMs)}%" else "",
+                        progressPercent = if (h.durationMs > 0) (h.positionMs * 100 / h.durationMs).toInt() else null
+                    )
                 }
+                CatalogScreen(
+                    rows = listOf(ContentRow(title = "观看历史", subtitle = "近 50 条", items = items)),
+                    settings = settings,
+                    onVideoClick = onVideoClick
+                )
             }
             composable(Screen.Live.route) {
-                LiveScreen()
+                LiveScreen(
+                    onChannelClick = { ch ->
+                        PendingPlay.set(ch.url, ch.name, ch.group, "")
+                        goto(Screen.Player.route)
+                    }
+                )
             }
             composable(Screen.Sources.route) {
                 SourcesScreen()
@@ -102,19 +132,15 @@ fun LibreTvApp() {
                 val videoId = backStackEntry.arguments?.getString("videoId").orEmpty()
                 DetailScreen(
                     videoId = videoId,
-                    onPlay = { id -> navController.navigate(Screen.Player.createRoute(id)) },
+                    onPlay = { url, title, source, vid ->
+                        PendingPlay.set(url, title, source, vid)
+                        goto(Screen.Player.route)
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable(
-                route = Screen.Player.route,
-                arguments = listOf(navArgument("videoId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val videoId = backStackEntry.arguments?.getString("videoId").orEmpty()
-                PlayerScreen(
-                    videoId = videoId,
-                    onBack = { navController.popBackStack() }
-                )
+            composable(Screen.Player.route) {
+                PlayerScreen(onBack = { navController.popBackStack() })
             }
         }
     }

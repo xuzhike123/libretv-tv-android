@@ -13,30 +13,66 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import io.github.xuzhike123.libretvtv.data.liveChannels
-import io.github.xuzhike123.libretvtv.data.liveGroups
+import androidx.compose.runtime.collectAsState
+import io.github.xuzhike123.libretvtv.data.LiveChannel
+import io.github.xuzhike123.libretvtv.data.M3uParser
+import io.github.xuzhike123.libretvtv.data.SourceRepository
 import io.github.xuzhike123.libretvtv.ui.components.FocusableSurface
 import io.github.xuzhike123.libretvtv.ui.components.SectionHeader
 
 /**
- * 直播页：左侧分组 + 右侧频道宫格（含当前/下一个节目）。
- * 注意：直播/IPTV 能力源自 LibreTV 社区分支，上游仓库文档未列出。
+ * 直播页：拉取已启用直播源的 M3U，按分组浏览并播放。
  */
 @Composable
-fun LiveScreen(modifier: Modifier = Modifier) {
-    val groups = liveGroups()
-    val channels = liveChannels()
-    var selectedGroup by remember { mutableStateOf(groups.first()) }
+fun LiveScreen(
+    modifier: Modifier = Modifier,
+    onChannelClick: (LiveChannel) -> Unit
+) {
+    val subs by SourceRepository.subscriptions.collectAsState()
+    val liveSources = remember(subs) { subs.filter { it.enabled }.flatMap { it.liveSources } }
+
+    var channels by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf("") }
+    var selectedGroup by remember { mutableStateOf("") }
+
+    LaunchedEffect(liveSources) {
+        loading = true
+        error = ""
+        channels = emptyList()
+        if (liveSources.isEmpty()) {
+            error = "尚未启用任何直播源，请先到「片源」页添加并启用订阅。"
+            loading = false
+            return@LaunchedEffect
+        }
+        try {
+            val all = mutableListOf<LiveChannel>()
+            liveSources.take(3).forEach { src ->
+                val r = runCatching { M3uParser.fetchAndParse(src) }.getOrDefault(emptyList())
+                r.forEach { if (all.none { it.url == it.url }) all.add(it) }
+            }
+            channels = all.take(300)
+            selectedGroup = all.firstOrNull()?.group ?: ""
+            if (all.isEmpty()) error = "直播列表为空，源地址可能失效。"
+        } finally {
+            loading = false
+        }
+    }
+
+    val groups = remember(channels) { channels.map { it.group }.distinct() }
+    val current = if (selectedGroup.isEmpty()) channels else channels.filter { it.group == selectedGroup }
 
     Row(
         modifier = modifier
@@ -51,6 +87,7 @@ fun LiveScreen(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             SectionHeader(title = "分组")
+            if (loading) Text("拉取直播列表中…", fontSize = 22.sp, color = MaterialTheme.colorScheme.primary)
             groups.forEach { group ->
                 FocusableSurface(
                     onClick = { selectedGroup = group },
@@ -58,15 +95,12 @@ fun LiveScreen(modifier: Modifier = Modifier) {
                     containerColor = if (group == selectedGroup) {
                         MaterialTheme.colorScheme.surfaceVariant
                     } else {
-                        androidx.compose.ui.graphics.Color.Transparent
+                        Color.Transparent
                     },
-                    modifier = Modifier
-                        .height(72.dp)
-                        .fillMaxWidth()
+                    modifier = Modifier.height(72.dp).fillMaxWidth()
                 ) {
                     Text(
-                        text = group,
-                        fontSize = 26.sp,
+                        text = group, fontSize = 26.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
                     )
@@ -76,9 +110,13 @@ fun LiveScreen(modifier: Modifier = Modifier) {
 
         LazyColumn(modifier = Modifier.weight(1f)) {
             item {
-                SectionHeader(title = selectedGroup, subtitle = "按 EPG 显示当前节目")
+                if (error.isNotEmpty()) {
+                    Text(error, fontSize = 24.sp, color = MaterialTheme.colorScheme.error)
+                } else {
+                    SectionHeader(title = selectedGroup.ifEmpty { "全部频道" }, subtitle = "共 ${current.size} 个")
+                }
             }
-            channels.chunked(4).forEach { rowChannels ->
+            current.chunked(4).forEach { rowChannels ->
                 item {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -86,30 +124,18 @@ fun LiveScreen(modifier: Modifier = Modifier) {
                     ) {
                         items(rowChannels) { channel ->
                             FocusableSurface(
-                                onClick = { },
+                                onClick = { onChannelClick(channel) },
                                 shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.width(300.dp)
+                                modifier = Modifier.width(320.dp)
                             ) {
                                 Row(modifier = Modifier.padding(22.dp)) {
-                                    Text(
-                                        text = channel.number,
-                                        fontSize = 26.sp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
                                     Column(modifier = Modifier.padding(start = 16.dp)) {
                                         Text(
-                                            text = channel.name,
-                                            fontSize = 26.sp,
+                                            text = channel.name, fontSize = 26.sp,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            text = "正在播出：" + channel.nowPlaying,
-                                            fontSize = 22.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = "接下来：" + channel.next,
-                                            fontSize = 22.sp,
+                                            text = channel.group, fontSize = 22.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }

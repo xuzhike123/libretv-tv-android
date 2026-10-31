@@ -6,7 +6,8 @@ data class VideoItem(
     val source: String,
     val duration: String,
     val secondaryLine: String = "",
-    val progressPercent: Int? = null
+    val progressPercent: Int? = null,
+    val pic: String = ""
 )
 
 data class ContentRow(

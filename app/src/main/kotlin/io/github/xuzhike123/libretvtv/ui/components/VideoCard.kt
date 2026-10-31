@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -25,7 +26,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import androidx.compose.ui.unit.sp
 import io.github.xuzhike123.libretvtv.data.CardStyle
 import io.github.xuzhike123.libretvtv.data.UiSettings
@@ -79,13 +82,22 @@ fun VideoCard(
                     .clip(RoundedCornerShape(12.dp))
                     .background(remember(video.id) { thumbBrush(video.id) })
             ) {
-                Text(
-                    text = video.title.take(2),
-                    fontSize = initialSize,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White.copy(alpha = 0.22f),
-                    modifier = Modifier.align(Alignment.Center)
-                )
+                if (video.pic.isNotEmpty()) {
+                    AsyncImage(
+                        model = video.pic,
+                        contentDescription = video.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(
+                        text = video.title.take(2),
+                        fontSize = initialSize,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White.copy(alpha = 0.22f),
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
                 Text(
                     text = video.source,
                     fontSize = metaSize,
