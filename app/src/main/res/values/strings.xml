@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LibreTV TV</string>
+    <string name="nav_home">首页</string>
+    <string name="nav_search">搜索</string>
+    <string name="nav_favorites">收藏</string>
+    <string name="nav_history">观看历史</string>
+    <string name="nav_live">直播 IPTV</string>
+    <string name="nav_sources">片源管理</string>
+    <string name="nav_settings">设置</string>
+    <string name="action_play">立即播放</string>
+    <string name="action_favorite">收藏</string>
+    <string name="action_download">下载本集</string>
+    <string name="hint_no_stream">未配置播放地址，请在 PlayerConfig 中填入 HLS 地址</string>
+</resources>

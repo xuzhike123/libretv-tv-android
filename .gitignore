@@ -1,0 +1,19 @@
+# Gradle 与构建产物
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# 系统文件
+.DS_Store
+Thumbs.db
