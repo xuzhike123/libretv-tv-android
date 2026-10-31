@@ -110,8 +110,16 @@ fun LibreTvApp() {
             }
             composable(Screen.Live.route) {
                 LiveScreen(
-                    onChannelClick = { ch ->
-                        PendingPlay.set(ch.url, ch.name, ch.group, "")
+                    onChannelClick = { ch, all, idx ->
+                        PendingPlay.set(
+                            url = ch.url,
+                            title = ch.name,
+                            source = ch.group,
+                            videoId = "",
+                            isLive = true,
+                            liveChannels = all,
+                            liveIndex = idx
+                        )
                         goto(Screen.Player.route)
                     }
                 )

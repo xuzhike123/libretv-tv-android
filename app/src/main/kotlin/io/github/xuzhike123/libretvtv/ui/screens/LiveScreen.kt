@@ -38,7 +38,7 @@ import io.github.xuzhike123.libretvtv.ui.components.SectionHeader
 @Composable
 fun LiveScreen(
     modifier: Modifier = Modifier,
-    onChannelClick: (LiveChannel) -> Unit
+    onChannelClick: (channel: LiveChannel, all: List<LiveChannel>, index: Int) -> Unit
 ) {
     val subs by SourceRepository.subscriptions.collectAsState()
     val customLive by SourceRepository.customLive.collectAsState()
@@ -127,7 +127,7 @@ fun LiveScreen(
                     ) {
                         items(rowChannels) { channel ->
                             FocusableSurface(
-                                onClick = { onChannelClick(channel) },
+                                onClick = { onChannelClick(channel, channels, channels.indexOf(channel)) },
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.width(320.dp)
                             ) {
