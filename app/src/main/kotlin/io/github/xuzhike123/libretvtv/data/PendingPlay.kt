@@ -12,7 +12,19 @@ data class PlayRequest(
     /** 直播时为同批次频道列表，用于「上一频道 / 下一频道」切换。 */
     val liveChannels: List<LiveChannel> = emptyList(),
     /** 当前频道在 liveChannels 中的下标，-1 表示未知。 */
-    val liveIndex: Int = -1
+    val liveIndex: Int = -1,
+    /** 点播：影片 id，用于「收藏」读写本地收藏表。直播为空。 */
+    val videoId: String = "",
+    /** 点播：海报地址，收藏时一起保存，便于收藏页展示封面。 */
+    val pic: String = "",
+    /** 点播：影片名（不含集数），切换集数时用来拼标题。 */
+    val baseTitle: String = "",
+    /** 点播：该影片的全部播放源（如「正片」「备用」），用于「换源」。 */
+    val playSources: List<PlaySource> = emptyList(),
+    /** 当前使用的播放源下标。 */
+    val sourceIndex: Int = 0,
+    /** 当前集数下标。 */
+    val episodeIndex: Int = 0
 )
 
 /**
@@ -29,6 +41,11 @@ object PendingPlay {
     var isLive: Boolean = false
     var liveChannels: List<LiveChannel> = emptyList()
     var liveIndex: Int = -1
+    var pic: String = ""
+    var baseTitle: String = ""
+    var playSources: List<PlaySource> = emptyList()
+    var sourceIndex: Int = 0
+    var episodeIndex: Int = 0
 
     fun set(
         url: String,
@@ -37,7 +54,12 @@ object PendingPlay {
         videoId: String,
         isLive: Boolean = false,
         liveChannels: List<LiveChannel> = emptyList(),
-        liveIndex: Int = -1
+        liveIndex: Int = -1,
+        pic: String = "",
+        baseTitle: String = "",
+        playSources: List<PlaySource> = emptyList(),
+        sourceIndex: Int = 0,
+        episodeIndex: Int = 0
     ) {
         this.url = url
         this.title = title
@@ -46,14 +68,25 @@ object PendingPlay {
         this.isLive = isLive
         this.liveChannels = liveChannels
         this.liveIndex = liveIndex
+        this.pic = pic
+        this.baseTitle = baseTitle
+        this.playSources = playSources
+        this.sourceIndex = sourceIndex
+        this.episodeIndex = episodeIndex
     }
 
     fun consume(): PlayRequest = PlayRequest(
         url = url,
         title = title,
         source = source,
+        videoId = videoId,
         isLive = isLive,
         liveChannels = liveChannels,
-        liveIndex = liveIndex
+        liveIndex = liveIndex,
+        pic = pic,
+        baseTitle = baseTitle,
+        playSources = playSources,
+        sourceIndex = sourceIndex,
+        episodeIndex = episodeIndex
     )
 }

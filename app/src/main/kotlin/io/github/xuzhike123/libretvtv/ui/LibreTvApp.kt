@@ -140,8 +140,18 @@ fun LibreTvApp() {
                 val videoId = backStackEntry.arguments?.getString("videoId").orEmpty()
                 DetailScreen(
                     videoId = videoId,
-                    onPlay = { url, title, source, vid ->
-                        PendingPlay.set(url, title, source, vid)
+                    onPlay = { url, title, source, vid, pic, base, playSources, sIdx, eIdx ->
+                        PendingPlay.set(
+                            url = url,
+                            title = title,
+                            source = source,
+                            videoId = vid,
+                            pic = pic,
+                            baseTitle = base,
+                            playSources = playSources,
+                            sourceIndex = sIdx,
+                            episodeIndex = eIdx
+                        )
                         goto(Screen.Player.route)
                     },
                     onBack = { navController.popBackStack() }

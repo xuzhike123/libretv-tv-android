@@ -1,5 +1,6 @@
 package io.github.xuzhike123.libretvtv.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -51,9 +52,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -86,21 +91,82 @@ fun PlayerScreen(
     var curSource by remember { mutableStateOf(req.source) }
     var channelIndex by remember { mutableIntStateOf(req.liveIndex) }
 
-    val player = remember {
-        ExoPlayer.Builder(context).build().also { exoPlayer ->
-            exoPlayer.playWhenReady = true
-            if (req.url.isNotEmpty()) {
-                exoPlayer.setMediaItem(MediaItem.fromUri(req.url))
-                exoPlayer.prepare()
+    var playing by remember { mutableStateOf(true) }
+    var positionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
+    var panelOpen by remember { mutableStateOf(false) }
+    var resizeIdx by remember { mutableIntStateOf(0) }
+
+    /** 「后台播放」：开启后回到电视桌面仍继续播放声音 */
+    var backgroundPlay by remember { mutableStateOf(false) }
+    /** 「自动帧率」：开启后让屏幕刷新率匹配视频帧率（切换时重建播放器并保留进度） */
+    var autoFrameRate by remember { mutableStateOf(false) }
+
+    /** 倍速档位，默认 1.0x */
+    val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+    var speedIdx by remember { mutableIntStateOf(1) }
+
+    /** 单集循环开关 */
+    var loopOn by remember { mutableStateOf(false) }
+
+    /** 字幕选择：0 = 关闭，1..N = 第 N 条字幕轨 */
+    var subIdx by remember { mutableIntStateOf(0) }
+    /** 当前媒体里可用的字幕轨名称（播放器就绪后自动刷新） */
+    var textTrackLabels by remember { mutableStateOf(listOf<String>()) }
+    /** 点播：当前播放源 / 集数下标，供「换源」「上一集 / 下一集」使用 */
+    var srcIdx by remember { mutableIntStateOf(req.sourceIndex) }
+    var epIdx by remember { mutableIntStateOf(req.episodeIndex) }
+
+    /** 收藏状态（进入播放页时从本地收藏表读取） */
+    var favOn by remember {
+        mutableStateOf(req.videoId.isNotEmpty() && LocalStore.isFavorite(req.videoId))
+    }
+
+    /** 播放设置面板里的实时信息，每 500ms 刷新 */
+    var videoInfoText by remember { mutableStateOf("加载中…") }
+    var audioInfoText by remember { mutableStateOf("加载中…") }
+    var bufferedPct by remember { mutableIntStateOf(0) }
+    var bufferedText by remember { mutableStateOf("0%") }
+    /** 「画质」按钮副标签：当前实际分辨率 */
+    var qualityText by remember { mutableStateOf("自动") }
+    /** 「字幕」按钮副标签：当前字幕轨名称 */
+    var subtitleText by remember { mutableStateOf("关闭") }
+
+    /** 画质按钮的焦点锚点：关闭面板后把焦点还回去 */
+    val qualityFocusRequester = remember { FocusRequester() }
+
+    /** 当前影片名（不含集数），切换集数时用它拼标题 */
+    val baseTitle = req.baseTitle.ifEmpty { req.title }
+
+    val player = remember(autoFrameRate) {
+        ExoPlayer.Builder(context)
+            .setVideoChangeFrameRateStrategy(
+                // 开：在可无缝切换时让屏幕刷新率匹配视频帧率；关：始终不切换刷新率
+                if (autoFrameRate) C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+                else C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+            )
+            .build()
+            .also { exoPlayer ->
+                exoPlayer.playWhenReady = true
+                exoPlayer.setHandleAudioBecomingNoisy(!backgroundPlay)
+                exoPlayer.setForegroundMode(backgroundPlay)
+                exoPlayer.playbackParameters = PlaybackParameters(speeds[speedIdx])
+                exoPlayer.repeatMode =
+                    if (loopOn) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                if (req.url.isNotEmpty()) {
+                    exoPlayer.setMediaItem(MediaItem.fromUri(req.url))
+                    exoPlayer.prepare()
+                    // 因切换「自动帧率」而重建播放器时，恢复原有播放进度
+                    if (positionMs > 0L) exoPlayer.seekTo(positionMs)
+                }
             }
-        }
     }
 
     var playerError by remember { mutableStateOf("") }
     val titleForHistory = rememberUpdatedState(curTitle)
     val sourceForHistory = rememberUpdatedState(curSource)
 
-    DisposableEffect(Unit) {
+    DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 playerError = error.localizedMessage ?: "播放出错"
@@ -133,24 +199,58 @@ fun PlayerScreen(
         }
     }
 
-    var playing by remember { mutableStateOf(true) }
-    var positionMs by remember { mutableStateOf(0L) }
-    var durationMs by remember { mutableStateOf(0L) }
-    var panelOpen by remember { mutableStateOf(false) }
-    var resizeIdx by remember { mutableIntStateOf(0) }
-
     val resizeModes = listOf(
         AspectRatioFrameLayout.RESIZE_MODE_FIT to "原比例",
         AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "裁剪填满",
         AspectRatioFrameLayout.RESIZE_MODE_FILL to "拉伸全屏"
     )
 
-    LaunchedEffect(Unit) {
+    // 每 500ms 刷新进度与播放设置面板中的实时信息
+    LaunchedEffect(player) {
         while (true) {
             positionMs = player.currentPosition
             durationMs = player.duration.coerceAtLeast(0L)
+            bufferedPct = player.bufferedPercentage
+            bufferedText = "$bufferedPct% · 已缓冲 " + formatTime(
+                player.bufferedPosition.coerceAtLeast(0L)
+            )
+            val vf = player.videoFormat
+            videoInfoText = describeVideoFormat(vf)
+            qualityText = if (vf != null && vf.height > 0) "${vf.height}p" else "自动"
+            audioInfoText = describeAudioFormat(player.audioFormat)
+
+            // 字幕轨名称（播放器就绪后才有内容）
+            val labels = mutableListOf<String>()
+            for (g in player.currentTracks.groups) {
+                if (g.type != C.TRACK_TYPE_TEXT) continue
+                for (i in 0 until g.length) {
+                    val f = runCatching { g.getTrackFormat(i) }.getOrNull()
+                    val name = f?.label?.takeIf { it.isNotBlank() }
+                        ?: f?.language?.takeIf { it.isNotBlank() }
+                        ?: "字幕 ${labels.size + 1}"
+                    labels += name
+                }
+            }
+            textTrackLabels = labels
+            if (labels.isEmpty()) subtitleText = "无字幕轨"
             delay(500L)
         }
+    }
+
+    // 「后台播放」开关状态同步到播放器
+    LaunchedEffect(backgroundPlay) {
+        player.setForegroundMode(backgroundPlay)
+        player.setHandleAudioBecomingNoisy(!backgroundPlay)
+    }
+
+    // 面板关闭后把焦点交还给「画质」按钮
+    LaunchedEffect(panelOpen) {
+        if (!panelOpen) runCatching { qualityFocusRequester.requestFocus() }
+    }
+
+    // 系统返回键：面板打开时优先关闭面板，否则退出播放页
+    BackHandler(enabled = panelOpen) {
+        panelOpen = false
     }
 
     fun togglePlay() {
@@ -193,6 +293,112 @@ fun PlayerScreen(
         playing = true
         positionMs = 0L
         durationMs = 0L
+    }
+
+    /** 循环切换倍速：0.75x → 1.0x → 1.25x → 1.5x → 2.0x */
+    fun cycleSpeed() {
+        val next = (speedIdx + 1) % speeds.size
+        speedIdx = next
+        player.playbackParameters = PlaybackParameters(speeds[next])
+    }
+
+    /** 单集循环开关 */
+    fun toggleLoop() {
+        loopOn = !loopOn
+        player.repeatMode = if (loopOn) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    }
+
+    /** 收藏 / 取消收藏当前影片（写入本设备 localstore.json） */
+    fun toggleFavorite() {
+        val vid = req.videoId
+        if (vid.isEmpty()) return
+        LocalStore.toggleFavorite(vid, baseTitle)
+        favOn = LocalStore.isFavorite(vid)
+    }
+
+    /** 播放指定「播放源 + 集数」：原地换流，不退出播放页 */
+    fun playEpisode(sIdx: Int, eIdx: Int) {
+        val ps = req.playSources.getOrNull(sIdx) ?: return
+        val eps = ps.episodes
+        if (eps.isEmpty()) return
+        val safeE = eIdx.coerceIn(0, eps.size - 1)
+        val ep = eps[safeE]
+        srcIdx = sIdx
+        epIdx = safeE
+        curTitle = buildEpisodeTitle(baseTitle, ep.name, safeE)
+        curSource = req.source
+        player.setMediaItem(MediaItem.fromUri(ep.url))
+        player.prepare()
+        player.playWhenReady = true
+        playing = true
+        positionMs = 0L
+        durationMs = 0L
+    }
+
+    /** 换源：切到下一个播放源，并尽量停在同一个集数 */
+    fun switchSource() {
+        val size = req.playSources.size
+        if (size <= 1) return
+        playEpisode((srcIdx + 1) % size, epIdx)
+    }
+
+    /** 应用当前字幕选择（subIdx = 0 即关闭字幕） */
+    fun applySubtitle() {
+        val builder = player.trackSelectionParameters.buildUpon()
+        if (subIdx == 0) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            subtitleText = "关闭"
+        } else {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            var remaining = subIdx - 1
+            var applied = false
+            for (g in player.currentTracks.groups) {
+                if (g.type != C.TRACK_TYPE_TEXT) continue
+                for (i in 0 until g.length) {
+                    if (!applied && remaining == 0) {
+                        builder.setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
+                        subtitleText = textTrackLabels.getOrNull(subIdx - 1) ?: "字幕"
+                        applied = true
+                    }
+                    remaining--
+                }
+            }
+            if (!applied) {
+                subIdx = 0
+                subtitleText = "关闭"
+            }
+        }
+        player.trackSelectionParameters = builder.build()
+    }
+
+    /** 循环切换字幕：关闭 → 第 1 条 → 第 2 条 … */
+    fun cycleSubtitle() {
+        if (textTrackLabels.isEmpty()) {
+            subtitleText = "无字幕轨"
+            return
+        }
+        subIdx = (subIdx + 1) % (textTrackLabels.size + 1)
+        applySubtitle()
+    }
+
+    /** 当前播放源下的集数列表 */
+    val currentEpisodes = req.playSources.getOrNull(srcIdx)?.episodes ?: emptyList()
+    val epCount = currentEpisodes.size
+
+    /** 第 i 集的显示名（源里没给名字时按序号生成） */
+    fun episodeName(i: Int): String {
+        val ep = currentEpisodes.getOrNull(i) ?: return ""
+        return ep.name.ifEmpty { String.format("第%02d集", i + 1) }
+    }
+
+    /** 「换源」按钮副标签：当前播放源名 + 序号 */
+    val sourceText = when {
+        req.playSources.isEmpty() -> "默认源"
+        req.playSources.size == 1 -> req.playSources[0].name.ifEmpty { "默认源" }
+        else -> {
+            val n = req.playSources.getOrNull(srcIdx)?.name.orEmpty().ifEmpty { "源" }
+            "$n ${srcIdx + 1}/${req.playSources.size}"
+        }
     }
 
     Box(
@@ -303,15 +509,35 @@ fun PlayerScreen(
                     )
                     PlayerControlButton("下一频道", R.drawable.ic_next, onClick = { switchChannel(1) })
                 } else {
-                    PlayerControlButton("上一集", R.drawable.ic_prev, onClick = { })
+                    PlayerControlButton(
+                        label = "上一集",
+                        iconRes = R.drawable.ic_prev,
+                        subLabel = if (epIdx > 0) episodeName(epIdx - 1) else "已是第一集",
+                        onClick = { if (epIdx > 0) playEpisode(srcIdx, epIdx - 1) }
+                    )
                     PlayerControlButton(
                         label = if (playing) "暂停" else "播放",
                         iconRes = if (playing) R.drawable.ic_pause else R.drawable.ic_play,
                         onClick = { togglePlay() }
                     )
-                    PlayerControlButton("下一集", R.drawable.ic_next, onClick = { })
-                    PlayerControlButton("倍速", null, onClick = { })
-                    PlayerControlButton("循环", null, onClick = { })
+                    PlayerControlButton(
+                        label = "下一集",
+                        iconRes = R.drawable.ic_next,
+                        subLabel = if (epIdx < epCount - 1) episodeName(epIdx + 1) else "已是最后一集",
+                        onClick = { if (epIdx < epCount - 1) playEpisode(srcIdx, epIdx + 1) }
+                    )
+                    PlayerControlButton(
+                        label = "倍速",
+                        iconRes = null,
+                        subLabel = "%.2fx".format(speeds[speedIdx]),
+                        onClick = { cycleSpeed() }
+                    )
+                    PlayerControlButton(
+                        label = "循环",
+                        iconRes = null,
+                        subLabel = if (loopOn) "开" else "关",
+                        onClick = { toggleLoop() }
+                    )
                 }
             }
 
@@ -319,11 +545,37 @@ fun PlayerScreen(
 
             // 辅助控制行（含全屏/画面比例）
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                PlayerControlButton("画质", null, onClick = { panelOpen = true })
-                PlayerControlButton("字幕", null, onClick = { })
-                if (!isLive) PlayerControlButton("换源", null, onClick = { })
-                PlayerControlButton("收藏", null, onClick = { })
-                PlayerControlButton("后台", null, onClick = { })
+                PlayerControlButton(
+                    label = "画质",
+                    iconRes = null,
+                    subLabel = qualityText,
+                    modifier = Modifier.focusRequester(qualityFocusRequester),
+                    onClick = { panelOpen = true }
+                )
+                PlayerControlButton(
+                    label = "字幕",
+                    iconRes = null,
+                    subLabel = subtitleText,
+                    onClick = { cycleSubtitle() }
+                )
+                if (!isLive) PlayerControlButton(
+                    label = "换源",
+                    iconRes = null,
+                    subLabel = sourceText,
+                    onClick = { switchSource() }
+                )
+                PlayerControlButton(
+                    label = "收藏",
+                    iconRes = null,
+                    subLabel = if (favOn) "已收藏" else "未收藏",
+                    onClick = { toggleFavorite() }
+                )
+                PlayerControlButton(
+                    label = "后台",
+                    iconRes = null,
+                    subLabel = if (backgroundPlay) "开" else "关",
+                    onClick = { backgroundPlay = !backgroundPlay }
+                )
                 PlayerControlButton(
                     label = "全屏",
                     iconRes = null,
@@ -334,28 +586,20 @@ fun PlayerScreen(
         }
 
         if (panelOpen) {
-            Column(
+            PlaySettingsPanel(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .width(460.dp)
-                    .background(Color(0xEE14171C))
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(text = "播放设置", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                listOf("视频格式", "音频轨道", "后台播放", "视频缓冲", "自动帧率").forEach { entry ->
-                    FocusableSurface(
-                        onClick = { },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(72.dp)
-                    ) {
-                        Text(
-                            text = entry, fontSize = 26.sp, color = Color.White,
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 20.dp)
-                        )
-                    }
-                }
-            }
+                    .padding(top = 12.dp, end = 12.dp),
+                videoInfo = videoInfoText,
+                audioInfo = audioInfoText,
+                bufferedInfo = bufferedText,
+                bufferedPct = bufferedPct,
+                backgroundPlay = backgroundPlay,
+                autoFrameRate = autoFrameRate,
+                onBackgroundPlayChange = { backgroundPlay = it },
+                onAutoFrameRateChange = { autoFrameRate = it },
+                onClose = { panelOpen = false }
+            )
         }
     }
 }
@@ -454,6 +698,7 @@ private fun PlayerControlButton(
     label: String,
     iconRes: Int? = null,
     subLabel: String? = null,
+    modifier: Modifier = Modifier,
     requestFocus: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -462,7 +707,7 @@ private fun PlayerControlButton(
         shape = CircleShape,
         containerColor = Color(0x33FFFFFF),
         requestFocus = requestFocus,
-        modifier = Modifier.width(96.dp)
+        modifier = modifier.width(96.dp)
     ) {
         Column(
             modifier = Modifier.height(96.dp),
@@ -485,6 +730,205 @@ private fun PlayerControlButton(
             }
         }
     }
+}
+
+/**
+ * 播放设置面板。
+ *
+ * 上半部分是播放器实时状态（视频格式 / 音频轨道 / 缓冲进度），每 500ms 自动刷新；
+ * 下半部分是两个真正生效的开关：后台播放、自动帧率。
+ * 关闭方式：遥控器返回键（由 BackHandler 统一拦截），或点击底部「返回」按钮。
+ */
+@Composable
+private fun PlaySettingsPanel(
+    modifier: Modifier = Modifier,
+    videoInfo: String,
+    audioInfo: String,
+    bufferedInfo: String,
+    bufferedPct: Int,
+    backgroundPlay: Boolean,
+    autoFrameRate: Boolean,
+    onBackgroundPlayChange: (Boolean) -> Unit,
+    onAutoFrameRateChange: (Boolean) -> Unit,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .width(420.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xF214171C))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(text = "播放设置", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(
+            text = "按返回键或下方「返回」关闭",
+            fontSize = 16.sp,
+            color = Color.White.copy(alpha = 0.55f)
+        )
+
+        SettingsInfoRow(label = "视频格式", value = videoInfo)
+        SettingsInfoRow(label = "音频轨道", value = audioInfo)
+        SettingsToggleRow(
+            label = "后台播放",
+            value = if (backgroundPlay) "开 · 退到桌面继续播" else "关 · 退到桌面暂停",
+            checked = backgroundPlay,
+            onToggle = { onBackgroundPlayChange(!backgroundPlay) }
+        )
+        SettingsBufferRow(label = "视频缓冲", value = bufferedInfo, pct = bufferedPct)
+        SettingsToggleRow(
+            label = "自动帧率",
+            value = if (autoFrameRate) "开 · 匹配视频帧率" else "关 · 保持当前刷新率",
+            checked = autoFrameRate,
+            onToggle = { onAutoFrameRateChange(!autoFrameRate) }
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        FocusableSurface(
+            onClick = onClose,
+            shape = RoundedCornerShape(12.dp),
+            containerColor = Color(0x33FFFFFF),
+            focusScale = 1.06f,
+            requestFocus = true,
+            modifier = Modifier.fillMaxWidth().height(64.dp)
+        ) { focused ->
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "返回",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (focused) Color.Black else Color.White
+                )
+            }
+        }
+    }
+}
+
+/** 只读信息行：左侧标签，右侧实时值 */
+@Composable
+private fun SettingsInfoRow(label: String, value: String) {
+    FocusableSurface(
+        onClick = { },
+        shape = RoundedCornerShape(12.dp),
+        containerColor = Color(0x18FFFFFF),
+        focusScale = 1.04f,
+        modifier = Modifier.fillMaxWidth().height(64.dp)
+    ) {
+        SettingsRowContent(label = label, value = value, valueColor = Color.White.copy(alpha = 0.8f))
+    }
+}
+
+/** 开关行：点击整行切换开 / 关 */
+@Composable
+private fun SettingsToggleRow(
+    label: String,
+    value: String,
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    FocusableSurface(
+        onClick = onToggle,
+        shape = RoundedCornerShape(12.dp),
+        containerColor = if (checked) Color(0x3373C8FF) else Color(0x18FFFFFF),
+        focusScale = 1.04f,
+        modifier = Modifier.fillMaxWidth().height(64.dp)
+    ) {
+        SettingsRowContent(
+            label = label,
+            value = value,
+            valueColor = if (checked) Color(0xFF8FD6FF) else Color.White.copy(alpha = 0.7f)
+        )
+    }
+}
+
+@Composable
+private fun SettingsRowContent(label: String, value: String, valueColor: Color) {
+    Row(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, fontSize = 22.sp, color = Color.White)
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = value,
+            fontSize = 20.sp,
+            color = valueColor,
+            textAlign = TextAlign.End,
+            maxLines = 1
+        )
+    }
+}
+
+/** 缓冲进度行：文字 + 进度条 */
+@Composable
+private fun SettingsBufferRow(label: String, value: String, pct: Int) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0x18FFFFFF))
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(text = label, fontSize = 22.sp, color = Color.White)
+            Text(
+                text = value,
+                fontSize = 20.sp,
+                color = Color.White.copy(alpha = 0.8f),
+                textAlign = TextAlign.End,
+                maxLines = 1
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(RoundedCornerShape(5.dp))
+                .background(Color.White.copy(alpha = 0.15f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(pct.coerceIn(0, 100) / 100f)
+                .background(Color(0xFF4FC3F7))
+            )
+        }
+    }
+}
+
+/** 视频轨道：编码 · 分辨率 · 帧率 · 码率 */
+private fun describeVideoFormat(format: Format?): String {
+    if (format == null) return "未知"
+    val codec = format.codecs
+        ?: format.sampleMimeType?.substringAfterLast('/')?.uppercase()
+        ?: return "未知"
+    val parts = mutableListOf(codec)
+    if (format.width > 0 && format.height > 0) parts += "${format.width}×${format.height}"
+    if (format.frameRate > 0f) parts += "%.2f fps".format(format.frameRate)
+    if (format.bitrate > 0) parts += "${format.bitrate / 1000} kbps"
+    return parts.joinToString(" · ")
+}
+
+/** 音频轨道：编码 · 采样率 · 声道数 · 语言 */
+private fun describeAudioFormat(format: Format?): String {
+    if (format == null) return "未知"
+    val codec = format.codecs
+        ?: format.sampleMimeType?.substringAfterLast('/')?.uppercase()
+        ?: return "未知"
+    val parts = mutableListOf(codec)
+    if (format.sampleRate > 0) parts += "${format.sampleRate} Hz"
+    if (format.channelCount > 0) parts += "${format.channelCount} 声道"
+    format.language?.takeIf { it.isNotBlank() }?.let { parts += it }
+    return parts.joinToString(" · ")
+}
+
+/** 拼接「影片名 + 集数名」，集数名为空时按序号生成 */
+private fun buildEpisodeTitle(base: String, epName: String, eIdx: Int): String {
+    val ep = epName.ifEmpty { String.format("第%02d集", eIdx + 1) }
+    return "$base $ep"
 }
 
 private fun formatTime(ms: Long): String {

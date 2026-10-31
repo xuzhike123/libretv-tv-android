@@ -32,11 +32,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.input.key.Key
 import io.github.xuzhike123.libretvtv.data.AppleCmsClient
 import io.github.xuzhike123.libretvtv.data.CmsDetail
 import io.github.xuzhike123.libretvtv.data.LocalStore
 import io.github.xuzhike123.libretvtv.data.PendingPlay
+import io.github.xuzhike123.libretvtv.data.PlaySource
 import io.github.xuzhike123.libretvtv.data.SourceRepository
 import io.github.xuzhike123.libretvtv.data.VodSource
 import io.github.xuzhike123.libretvtv.ui.components.FocusableSurface
@@ -52,7 +54,17 @@ import java.net.URLDecoder
 fun DetailScreen(
     videoId: String,
     modifier: Modifier = Modifier,
-    onPlay: (url: String, title: String, source: String, videoId: String) -> Unit,
+    onPlay: (
+        url: String,
+        title: String,
+        source: String,
+        videoId: String,
+        pic: String,
+        baseTitle: String,
+        playSources: List<PlaySource>,
+        sourceIndex: Int,
+        episodeIndex: Int
+    ) -> Unit,
     onBack: () -> Unit
 ) {
     val decoded = remember(videoId) { runCatching { URLDecoder.decode(videoId, "UTF-8") }.getOrDefault(videoId) }
@@ -151,7 +163,17 @@ fun DetailScreen(
                         FocusableSurface(
                             onClick = {
                                 val ep = d.episodes.first()
-                                onPlay(ep.url, d.name + " " + ep.name, d.sourceName, decoded)
+                                onPlay(
+                                    ep.url,
+                                    d.name + " " + ep.name,
+                                    d.sourceName,
+                                    decoded,
+                                    d.pic,
+                                    d.name,
+                                    d.playSources,
+                                    selectedSource,
+                                    0
+                                )
                             },
                             shape = RoundedCornerShape(32.dp),
                             containerColor = MaterialTheme.colorScheme.primary
@@ -218,9 +240,21 @@ fun DetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp)
                     ) {
-                        items(episodes) { ep ->
+                        itemsIndexed(episodes) { ei, ep ->
                             FocusableSurface(
-                                onClick = { onPlay(ep.url, d.name + " " + ep.name, d.sourceName, decoded) },
+                                onClick = {
+                                    onPlay(
+                                        ep.url,
+                                        d.name + " " + ep.name,
+                                        d.sourceName,
+                                        decoded,
+                                        d.pic,
+                                        d.name,
+                                        d.playSources,
+                                        selectedSource,
+                                        ei
+                                    )
+                                },
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.width(180.dp)
                             ) {
