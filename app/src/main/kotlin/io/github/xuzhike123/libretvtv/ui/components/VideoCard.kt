@@ -72,7 +72,8 @@ fun VideoCard(
     FocusableSurface(
         onClick = onClick,
         modifier = modifier.width(cardWidth),
-        requestFocus = requestFocus
+        requestFocus = requestFocus,
+        focusScale = 1.12f
     ) { focused ->
         Column {
             Box(

@@ -30,7 +30,7 @@ fun ContentRowSection(
         SectionHeader(title = row.title, subtitle = row.subtitle)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(26.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 16.dp)
+            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 20.dp)
         ) {
             items(row.items) { item ->
                 VideoCard(

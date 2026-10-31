@@ -123,7 +123,7 @@ fun LiveScreen(
                 item {
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        contentPadding = PaddingValues(vertical = 16.dp)
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp)
                     ) {
                         items(rowChannels) { channel ->
                             FocusableSurface(

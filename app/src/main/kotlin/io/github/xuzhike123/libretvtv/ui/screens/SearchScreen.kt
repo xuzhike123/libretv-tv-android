@@ -1,6 +1,7 @@
 package io.github.xuzhike123.libretvtv.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -126,7 +127,10 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     items(results.chunked(5)) { rowItems ->
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(26.dp)) {
+                        LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(26.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp)
+                    ) {
                             items(rowItems) { item ->
                                 VideoCard(
                                     video = item,
