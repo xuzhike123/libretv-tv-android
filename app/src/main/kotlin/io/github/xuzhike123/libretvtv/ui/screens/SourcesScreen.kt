@@ -4,13 +4,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -24,11 +32,55 @@ import io.github.xuzhike123.libretvtv.ui.components.SectionHeader
 
 /**
  * 片源管理：健康度、延迟、失败源的阶梯停用状态。
- * 数据为占位演示，未接入真实远程订阅。
+ * 远程订阅支持在端内添加 / 删除（内存态，演示用，未持久化）。
  */
 @Composable
 fun SourcesScreen(modifier: Modifier = Modifier) {
     val sources = sourceItems()
+    val subscriptions = remember { mutableStateListOf<String>() }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var newUrl by remember { mutableStateOf("") }
+
+    if (showAddDialog) {
+        AddSubscriptionDialog(
+            value = newUrl,
+            onValueChange = { newUrl = it },
+            onConfirm = {
+                val u = newUrl.trim()
+                if (u.isNotEmpty()) subscriptions.add(u)
+                newUrl = ""
+                showAddDialog = false
+            },
+            onDismiss = {
+                newUrl = ""
+                showAddDialog = false
+            }
+        )
+    }
+
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text("知道了")
+                }
+            },
+            title = { Text("导出订阅") },
+            text = {
+                Text(
+                    if (subscriptions.isEmpty()) {
+                        "当前还没有任何远程订阅地址。"
+                    } else {
+                        "已导出 ${subscriptions.size} 个订阅地址：\n" +
+                            subscriptions.joinToString("\n")
+                    }
+                )
+            }
+        )
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -82,9 +134,47 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
+                if (subscriptions.isEmpty()) {
+                    item {
+                        Text(
+                            text = "暂无订阅，点击右侧「添加订阅地址」",
+                            fontSize = 22.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 24.dp)
+                        )
+                    }
+                }
+                items(subscriptions) { url ->
+                    FocusableSurface(
+                        onClick = { subscriptions.remove(url) },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.width(420.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text(
+                                text = "订阅源",
+                                fontSize = 22.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = url,
+                                fontSize = 24.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "聚焦后按确认键删除",
+                                fontSize = 18.sp,
+                                color = Color(0xFFFFB74D)
+                            )
+                        }
+                    }
+                }
                 items(listOf("添加订阅地址", "导出并分享")) { label ->
                     FocusableSurface(
-                        onClick = { },
+                        onClick = {
+                            if (label == "添加订阅地址") showAddDialog = true
+                            else showExportDialog = true
+                        },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.width(300.dp)
                     ) {
@@ -99,4 +189,32 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+@Composable
+private fun AddSubscriptionDialog(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        title = { Text("添加订阅地址") },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = { Text("LibreTV-SourceList JSON 地址") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    )
 }
