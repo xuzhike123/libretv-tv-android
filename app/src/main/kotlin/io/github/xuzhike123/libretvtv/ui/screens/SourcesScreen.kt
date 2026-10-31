@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.collectAsState
+import io.github.xuzhike123.libretvtv.data.LiveSource
 import io.github.xuzhike123.libretvtv.data.SourceRepository
 import io.github.xuzhike123.libretvtv.data.Subscription
 import io.github.xuzhike123.libretvtv.ui.components.FocusableSurface
@@ -47,10 +48,16 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showAddLiveDialog by remember { mutableStateOf(false) }
     var newUrl by remember { mutableStateOf("") }
+    var newLiveName by remember { mutableStateOf("") }
+    var newLiveUrl by remember { mutableStateOf("") }
+    var liveImportError by remember { mutableStateOf("") }
+
+    val customLive by SourceRepository.customLive.collectAsState()
 
     val enabledVod = subs.filter { it.enabled }.sumOf { it.vodCount }
-    val enabledLive = subs.filter { it.enabled }.sumOf { it.liveCount }
+    val enabledLive = subs.filter { it.enabled }.sumOf { it.liveCount } + customLive.size
 
     if (showAddDialog) {
         AddSubscriptionDialog(
@@ -84,6 +91,36 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
                             "\n直播源示例：\n" + allLive.take(3).joinToString("\n") { "· ${it.name} (${it.url})" })
                 )
             }
+        )
+    }
+
+    if (showAddLiveDialog) {
+        AddLiveSourceDialog(
+            name = newLiveName,
+            url = newLiveUrl,
+            error = liveImportError,
+            onNameChange = { newLiveName = it },
+            onUrlChange = { newLiveUrl = it; liveImportError = "" },
+            onConfirm = {
+                val n = newLiveName.trim()
+                val u = newLiveUrl.trim()
+                if (u.isEmpty()) {
+                    liveImportError = "请填写 M3U 直播源地址"
+                    return@AddLiveSourceDialog
+                }
+                scope.launch {
+                    val ok = SourceRepository.addLiveSource(n, u)
+                    if (ok) {
+                        newLiveName = ""
+                        newLiveUrl = ""
+                        liveImportError = ""
+                        showAddLiveDialog = false
+                    } else {
+                        liveImportError = "地址无效，需以 http(s) 开头"
+                    }
+                }
+            },
+            onDismiss = { newLiveName = ""; newLiveUrl = ""; liveImportError = ""; showAddLiveDialog = false }
         )
     }
 
@@ -166,6 +203,49 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
                                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        item {
+            SectionHeader(title = "自定义直播源", subtitle = "单独导入 M3U 直链，独立于远程订阅，导入即在直播页生效")
+        }
+        item {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                contentPadding = PaddingValues(vertical = 16.dp)
+            ) {
+                items(customLive) { ls ->
+                    LiveSourceCard(
+                        ls = ls,
+                        onDelete = { SourceRepository.removeLiveSource(ls.url) }
+                    )
+                }
+
+                if (customLive.isEmpty()) {
+                    item {
+                        Text(
+                            text = "还没有自定义直播源。点击「导入直播源」粘贴一个 M3U 地址（如 https://example.com/tv.m3u），即可在「直播IPTV」直接观看。",
+                            fontSize = 22.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(460.dp).padding(vertical = 24.dp)
+                        )
+                    }
+                }
+
+                item {
+                    FocusableSurface(
+                        onClick = { showAddLiveDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.width(300.dp)
+                    ) {
+                        Text(
+                            text = "导入直播源",
+                            fontSize = 26.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
+                        )
                     }
                 }
             }
@@ -293,4 +373,96 @@ private fun AddSubscriptionDialog(
             }
         }
     )
+}
+
+@Composable
+private fun AddLiveSourceDialog(
+    name: String,
+    url: String,
+    error: String,
+    onNameChange: (String) -> Unit,
+    onUrlChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onConfirm) { Text("导入") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        title = { Text("导入直播源") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = onNameChange,
+                    label = { Text("名称（可选）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = onUrlChange,
+                    label = { Text("M3U 地址（http/https）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = "支持完整 M3U 播放列表直链，导入后即可在「直播IPTV」按分组观看。",
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (error.isNotEmpty()) {
+                    Text(
+                        text = error,
+                        fontSize = 18.sp,
+                        color = Color(0xFFEF5350)
+                    )
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun LiveSourceCard(
+    ls: LiveSource,
+    onDelete: () -> Unit
+) {
+    FocusableSurface(
+        onClick = { },
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.width(460.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(
+                text = ls.name.ifEmpty { "未命名直播源" },
+                fontSize = 26.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = ls.url,
+                fontSize = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Text(
+                text = "导入即在直播页生效",
+                fontSize = 18.sp,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 10.dp)
+            )
+            FocusableSurface(
+                onClick = onDelete,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.width(140.dp).padding(top = 12.dp)
+            ) {
+                Text(
+                    text = "删除",
+                    fontSize = 20.sp,
+                    color = Color(0xFFEF5350),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
+                )
+            }
+        }
+    }
 }

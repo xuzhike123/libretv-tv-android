@@ -41,7 +41,8 @@ fun LiveScreen(
     onChannelClick: (LiveChannel) -> Unit
 ) {
     val subs by SourceRepository.subscriptions.collectAsState()
-    val liveSources = remember(subs) { subs.filter { it.enabled }.flatMap { it.liveSources } }
+    val customLive by SourceRepository.customLive.collectAsState()
+    val liveSources = remember(subs, customLive) { SourceRepository.enabledLiveSources() }
 
     var channels by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -59,13 +60,15 @@ fun LiveScreen(
         }
         try {
             val all = mutableListOf<LiveChannel>()
-            liveSources.take(3).forEach { src ->
+            // 优先加载用户单独导入的自定义直播源，保证「导入即在直播页生效」；再补齐订阅内置源
+            val ordered = customLive + (liveSources - customLive)
+            ordered.take(6).forEach { src ->
                 val r = runCatching { M3uParser.fetchAndParse(src) }.getOrDefault(emptyList())
-                r.forEach { if (all.none { it.url == it.url }) all.add(it) }
+                r.forEach { ch -> if (all.none { it.url == ch.url }) all.add(ch) }
             }
             channels = all.take(300)
             selectedGroup = all.firstOrNull()?.group ?: ""
-            if (all.isEmpty()) error = "直播列表为空，源地址可能失效。"
+            if (all.isEmpty()) error = "直播列表为空，源地址可能失效或网络不可达。"
         } finally {
             loading = false
         }

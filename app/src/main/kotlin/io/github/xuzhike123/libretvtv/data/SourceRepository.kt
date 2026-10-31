@@ -25,6 +25,11 @@ object SourceRepository {
 
     private lateinit var appContext: Context
     private lateinit var storeFile: File
+    private lateinit var customLiveFile: File
+
+    /** 用户单独导入的自定义直播源（M3U 直链），独立于远程订阅 */
+    private val _customLive = MutableStateFlow<List<LiveSource>>(emptyList())
+    val customLive: StateFlow<List<LiveSource>> = _customLive.asStateFlow()
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -41,7 +46,9 @@ object SourceRepository {
         if (::appContext.isInitialized) return
         appContext = ctx.applicationContext
         storeFile = File(appContext.filesDir, "subscriptions.json")
+        customLiveFile = File(appContext.filesDir, "live_sources.json")
         loadFromDisk()
+        loadCustomLive()
     }
 
     /** 首次运行且无任何订阅时，注入示例订阅并同步 */
@@ -121,8 +128,52 @@ object SourceRepository {
     fun enabledVodSources(): List<VodSource> =
         _subscriptions.value.filter { it.enabled }.flatMap { it.vodSources }
 
+    /** 合并「订阅内的直播源」与「用户单独导入的自定义直播源」 */
     fun enabledLiveSources(): List<LiveSource> =
-        _subscriptions.value.filter { it.enabled }.flatMap { it.liveSources }
+        _subscriptions.value.filter { it.enabled }.flatMap { it.liveSources } + _customLive.value
+
+    /** 单独导入一个 M3U 直播源（返回是否成功） */
+    suspend fun addLiveSource(name: String, url: String): Boolean = withContext(Dispatchers.IO) {
+        val u = url.trim().removeSuffix("/")
+        if (u.isEmpty() || !u.startsWith("http", ignoreCase = true)) return@withContext false
+        val n = name.trim().ifEmpty { "自定义直播源" }
+        val list = _customLive.value.toMutableList()
+        if (list.any { it.url == u }) return@withContext true
+        list.add(LiveSource(name = n, url = u))
+        _customLive.value = list
+        saveCustomLive()
+        true
+    }
+
+    fun removeLiveSource(url: String) {
+        _customLive.value = _customLive.value.filter { it.url != url }
+        saveCustomLive()
+    }
+
+    private fun loadCustomLive() {
+        if (!::customLiveFile.isInitialized || !customLiveFile.exists()) return
+        runCatching {
+            val arr = JSONArray(customLiveFile.readText())
+            val list = mutableListOf<LiveSource>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                list.add(LiveSource(name = o.optString("name"), url = o.optString("url"), epg = o.optString("epg")))
+            }
+            _customLive.value = list
+        }
+    }
+
+    private fun saveCustomLive() {
+        runCatching {
+            val arr = JSONArray()
+            _customLive.value.forEach {
+                arr.put(JSONObject().apply {
+                    put("name", it.name); put("url", it.url); put("epg", it.epg)
+                })
+            }
+            customLiveFile.writeText(arr.toString())
+        }
+    }
 
     fun firstEnabledVodSource(): VodSource? = enabledVodSources().firstOrNull()
 
