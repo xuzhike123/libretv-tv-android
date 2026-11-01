@@ -77,7 +77,7 @@ object SourceRepository {
         _busy.value = true
         try {
             val raw = fetch(u)
-            val (vods, lives) = SourceListParser.parse(raw ?: "")
+            val (vods, lives) = SourceListParser.parse(raw ?: "", u)
             val name = try {
                 JSONObject(raw ?: "{}").optString("name", "")
             } catch (_: Exception) { "" }

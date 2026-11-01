@@ -13,7 +13,11 @@ import org.json.JSONObject
  */
 object SourceListParser {
 
-    fun parse(raw: String): Pair<List<VodSource>, List<LiveSource>> {
+    /**
+     * @param baseUrl 订阅地址本身。当粘贴的内容「就是」一个 Apple CMS 接口的
+     *   返回（{code:1, list:[{vod_id,...}]}）时，用它作为点播源地址。
+     */
+    fun parse(raw: String, baseUrl: String = ""): Pair<List<VodSource>, List<LiveSource>> {
         val vodSeen = LinkedHashSet<String>(256)
         val liveSeen = LinkedHashSet<String>(128)
         val vods = mutableListOf<VodSource>()
@@ -65,12 +69,30 @@ object SourceListParser {
                     }
                     val livesArr = root.optJSONArray("lives")
                     parseTvboxLives(livesArr, lives, liveSeen)
+                } else if (isAppleCmsPayload(root)) {
+                    // 形态 4：直接粘贴了一个 Apple CMS 接口的返回，
+                    // 例如 https://xxx/api.php/provide/vod/?ac=videolist
+                    val host = baseUrl.substringAfter("://").substringBefore('/')
+                    addVod(
+                        JSONObject().apply {
+                            put("name", host.ifEmpty { "Apple CMS 源" })
+                            put("url", baseUrl)
+                        },
+                        vods, vodSeen
+                    )
                 }
             }
         }
 
         // 控制规模：点播最多 100、直播最多 50（与 LibreTV 服务端一致）
         return vods.take(100) to lives.take(50)
+    }
+
+    /** 判断是否为 Apple CMS 接口自身的返回：顶层带 list 且首项含 vod_id */
+    private fun isAppleCmsPayload(root: JSONObject): Boolean {
+        val list = root.optJSONArray("list") ?: return false
+        if (list.length() == 0) return false
+        return list.optJSONObject(0)?.has("vod_id") == true
     }
 
     private fun parseTvboxLives(
