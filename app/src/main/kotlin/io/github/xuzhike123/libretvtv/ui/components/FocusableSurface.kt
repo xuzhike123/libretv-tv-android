@@ -46,7 +46,7 @@ fun FocusableSurface(
     )
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(requestFocus) {
         if (requestFocus) {
             runCatching { focusRequester.requestFocus() }
         }

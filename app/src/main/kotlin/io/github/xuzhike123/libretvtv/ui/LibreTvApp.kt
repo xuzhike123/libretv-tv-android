@@ -55,10 +55,14 @@ fun LibreTvApp() {
         modifier = Modifier
             .fillMaxSize()
             .onTvKey { key ->
-                if (key == Key.Back || key == Key.Escape) {
-                    navController.popBackStack()
-                } else {
-                    false
+                when (key) {
+                    // 菜单键：主界面统一打开设置页
+                    Key.Menu -> {
+                        goto(Screen.Settings.route)
+                        true
+                    }
+                    Key.Back, Key.Escape -> navController.popBackStack()
+                    else -> false
                 }
             }
     ) {

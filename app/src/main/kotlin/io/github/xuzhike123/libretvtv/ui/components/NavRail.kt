@@ -65,7 +65,8 @@ fun LibreTvNavRail(
                 } else {
                     Color.Transparent
                 },
-                requestFocus = index == 0
+                // 仅在首页时抢焦点：否则播放页入场后焦点仍停在导航栏上
+                requestFocus = index == 0 && selectedRoute == Screen.Home.route
             ) {
                 Row(
                     modifier = Modifier

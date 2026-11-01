@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,7 +60,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import io.github.xuzhike123.libretvtv.R
@@ -67,6 +70,7 @@ import io.github.xuzhike123.libretvtv.data.HistoryEntry
 import io.github.xuzhike123.libretvtv.data.LocalStore
 import io.github.xuzhike123.libretvtv.data.PendingPlay
 import io.github.xuzhike123.libretvtv.ui.components.FocusableSurface
+import io.github.xuzhike123.libretvtv.ui.util.PlayerKeys
 import io.github.xuzhike123.libretvtv.ui.util.onTvKey
 import kotlinx.coroutines.delay
 
@@ -97,10 +101,21 @@ fun PlayerScreen(
     var panelOpen by remember { mutableStateOf(false) }
     var resizeIdx by remember { mutableIntStateOf(0) }
 
+    /** OSD（标题区 + 底部操作栏）是否可见：默认隐藏，按 ↓ / 菜单键呼出 */
+    var controlsVisible by remember { mutableStateOf(false) }
+    /** 每次交互自增，用于重置 OSD 自动隐藏倒计时 */
+    var osdPulse by remember { mutableIntStateOf(0) }
+    /** 底部操作栏是否持有焦点：决定 ← → 是移动焦点还是快退快进 */
+    var osdFocused by remember { mutableStateOf(false) }
+    /** 倍速菜单是否展开（播放页按 ↑ 呼出） */
+    var speedMenuOpen by remember { mutableStateOf(false) }
+
     /** 「后台播放」：开启后回到电视桌面仍继续播放声音 */
     var backgroundPlay by remember { mutableStateOf(false) }
     /** 「自动帧率」：开启后让屏幕刷新率匹配视频帧率（切换时重建播放器并保留进度） */
     var autoFrameRate by remember { mutableStateOf(false) }
+    /** 「解码」：false = 硬解优先，true = 软解优先（兼容部分老片源） */
+    var decoderSoftware by remember { mutableStateOf(false) }
 
     /** 倍速档位，默认 1.0x */
     val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
@@ -135,11 +150,22 @@ fun PlayerScreen(
     /** 画质按钮的焦点锚点：关闭面板后把焦点还回去 */
     val qualityFocusRequester = remember { FocusRequester() }
 
+    /** 底部操作栏的默认焦点项 */
+    val osdFirstFocus = remember { FocusRequester() }
+
+    /** 播放页根容器的焦点锚点：OSD 隐藏时按键由这里接管 */
+    val playerRootFocus = remember { FocusRequester() }
+
     /** 当前影片名（不含集数），切换集数时用它拼标题 */
     val baseTitle = req.baseTitle.ifEmpty { req.title }
 
-    val player = remember(autoFrameRate) {
-        ExoPlayer.Builder(context)
+    val player = remember(autoFrameRate, decoderSoftware) {
+        val renderersFactory = DefaultRenderersFactory(context).setMediaCodecSelector(
+            // 硬解优先走系统默认选择器；软解优先则只挑软件解码器
+            if (decoderSoftware) MediaCodecSelector.PREFER_SOFTWARE
+            else MediaCodecSelector.DEFAULT
+        )
+        ExoPlayer.Builder(context, renderersFactory)
             .setVideoChangeFrameRateStrategy(
                 // 开：在可无缝切换时让屏幕刷新率匹配视频帧率；关：始终不切换刷新率
                 if (autoFrameRate) C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
@@ -253,6 +279,29 @@ fun PlayerScreen(
         panelOpen = false
     }
 
+    // 进入播放页即让播放器根容器持有焦点
+    LaunchedEffect(Unit) {
+        repeat(6) {
+            delay(250L)
+            val ok = runCatching { playerRootFocus.requestFocus(); true }.getOrDefault(false)
+            if (ok) return@LaunchedEffect
+        }
+    }
+
+    /** 唤出 OSD 并重置自动隐藏倒计时 */
+    fun showControls() {
+        controlsVisible = true
+        osdPulse++
+    }
+
+    /** 收起 OSD：焦点交还播放器根容器，← → 恢复为快退快进 */
+    fun hideControls() {
+        controlsVisible = false
+        osdFocused = false
+        osdPulse++
+        runCatching { playerRootFocus.requestFocus() }
+    }
+
     fun togglePlay() {
         val next = !playing
         playing = next
@@ -300,6 +349,13 @@ fun PlayerScreen(
         val next = (speedIdx + 1) % speeds.size
         speedIdx = next
         player.playbackParameters = PlaybackParameters(speeds[next])
+    }
+
+    /** 直接跳到指定倍速档位（倍速菜单用） */
+    fun applySpeedIndex(idx: Int) {
+        val safe = idx.coerceIn(0, speeds.size - 1)
+        speedIdx = safe
+        player.playbackParameters = PlaybackParameters(speeds[safe])
     }
 
     /** 单集循环开关 */
@@ -391,6 +447,56 @@ fun PlayerScreen(
         return ep.name.ifEmpty { String.format("第%02d集", i + 1) }
     }
 
+    /** 上集 / 上一频道的显示名 */
+    fun prevItemName(): String = if (isLive) {
+        val list = req.liveChannels
+        if (list.isEmpty()) "" else {
+            val size = list.size
+            list[((channelIndex - 1) % size + size) % size].name
+        }
+    } else {
+        if (epIdx > 0) episodeName(epIdx - 1) else "已是第一集"
+    }
+
+    /** 下集 / 下一频道的显示名 */
+    fun nextItemName(): String = if (isLive) {
+        val list = req.liveChannels
+        if (list.isEmpty()) "" else list[(channelIndex + 1) % list.size].name
+    } else {
+        if (epIdx < epCount - 1) episodeName(epIdx + 1) else "已是最后一集"
+    }
+
+    /** 上集 / 上一频道 */
+    fun gotoPrevItem() {
+        if (isLive) switchChannel(-1)
+        else if (epIdx > 0) playEpisode(srcIdx, epIdx - 1)
+    }
+
+    /** 下集 / 下一频道 */
+    fun gotoNextItem() {
+        if (isLive) switchChannel(1)
+        else if (epIdx < epCount - 1) playEpisode(srcIdx, epIdx + 1)
+    }
+
+    /** 刷新：重新加载当前流 */
+    fun reload() {
+        playerError = ""
+        player.seekTo(player.currentPosition)
+        player.prepare()
+        player.playWhenReady = true
+        playing = true
+        showControls()
+    }
+
+    /** 重播：从头开始 */
+    fun replay() {
+        player.seekTo(0L)
+        player.playWhenReady = true
+        playing = true
+        positionMs = 0L
+        showControls()
+    }
+
     /** 「换源」按钮副标签：当前播放源名 + 序号 */
     val sourceText = when {
         req.playSources.isEmpty() -> "默认源"
@@ -401,19 +507,73 @@ fun PlayerScreen(
         }
     }
 
+    // 设置面板打开时 OSD 必须保持可见，否则面板会悬空
+    val osdVisible = controlsVisible || panelOpen
+
+    /**
+     * 播放页遥控器按键映射。
+     * 由 MainActivity.dispatchKeyEvent 统一回调到这里，
+     * 所以即使当前没有 Compose 节点持有焦点（例如操作栏已收起），按键依然有效。
+     */
+    fun handleKey(key: Key): Boolean {
+        when (key) {
+            // ↓ / 菜单键：呼出底部操作栏，并把焦点交给第一项
+            Key.DirectionDown, Key.Menu -> {
+                showControls()
+                runCatching { osdFirstFocus.requestFocus() }
+                return true
+            }
+            // ↑：焦点在操作栏里时收起它，否则呼出倍速菜单
+            Key.DirectionUp -> {
+                if (controlsVisible && osdFocused) {
+                    hideControls()
+                } else {
+                    showControls()
+                    speedMenuOpen = !speedMenuOpen
+                }
+                return true
+            }
+            // ← →：焦点在操作栏里时用于移动焦点，否则快退 / 快进 10 秒
+            Key.DirectionLeft, Key.DirectionRight -> {
+                if (controlsVisible && osdFocused) return false
+                stepBy(if (key == Key.DirectionLeft) -10000L else 10000L)
+                showControls()
+                return true
+            }
+            // OK：焦点在操作栏里时交给按钮处理，否则暂停 / 播放
+            Key.DirectionCenter, Key.Enter -> {
+                if (controlsVisible && osdFocused) return false
+                togglePlay()
+                return true
+            }
+            // 返回：逐级关闭（倍速菜单 → 设置面板 → 操作栏），都没有则退出播放
+            Key.Back, Key.Escape -> {
+                when {
+                    speedMenuOpen -> speedMenuOpen = false
+                    panelOpen -> panelOpen = false
+                    controlsVisible && osdFocused -> hideControls()
+                    else -> onBack()
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    // 播放页按键统一注册到 Activity 层分发，避免焦点丢失导致遥控失灵
+    DisposableEffect(player) {
+        PlayerKeys.register { key -> handleKey(key) }
+        onDispose { PlayerKeys.unregister() }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onTvKey { key ->
-                when (key) {
-                    Key.Back, Key.Escape -> {
-                        if (panelOpen) panelOpen = false else onBack()
-                        true
-                    }
-                    Key.DirectionCenter, Key.Enter -> { togglePlay(); true }
-                    else -> false
-                }
+            .focusRequester(playerRootFocus)
+            .focusable(interactionSource = remember { MutableInteractionSource() })
+            .pointerInput(Unit) {
+                detectTapGestures { showControls() }
             }
     ) {
         if (req.url.isEmpty()) {
@@ -446,30 +606,34 @@ fun PlayerScreen(
             )
         }
 
-        // 标题区
-        Column(modifier = Modifier.padding(28.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = curTitle, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                if (isLive) {
-                    Spacer(modifier = Modifier.width(16.dp))
-                    LiveBadge()
+        // 标题区（OSD：默认隐藏，↓ / 菜单键呼出）
+        if (osdVisible) {
+            Column(modifier = Modifier.padding(28.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = curTitle, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    if (isLive) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        LiveBadge()
+                    }
                 }
+                val sub = if (isLive && req.liveChannels.isNotEmpty()) {
+                    "$curSource · 频道 ${channelIndex + 1}/${req.liveChannels.size}"
+                } else curSource
+                Text(text = sub, fontSize = 22.sp, color = Color.White.copy(alpha = 0.7f))
             }
-            val sub = if (isLive && req.liveChannels.isNotEmpty()) {
-                "$curSource · 频道 ${channelIndex + 1}/${req.liveChannels.size}"
-            } else curSource
-            Text(text = sub, fontSize = 22.sp, color = Color.White.copy(alpha = 0.7f))
         }
 
-        // 底部控制区
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(28.dp)
-        ) {
+        // 底部控制区（OSD：默认隐藏，↓ / 菜单键呼出）
+        if (osdVisible) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .onFocusChanged { osdFocused = it.hasFocus }
+                    .padding(28.dp)
+            ) {
             if (isLive) {
                 Text(
-                    text = "直播播放中，不支持拖动进度 · 左右键可在下方切换频道",
+                    text = "直播播放中 · OK 暂停/播放 · ↑ 倍速菜单 · ↓ 或菜单键 呼出操作栏 · 返回 退出",
                     fontSize = 20.sp,
                     color = Color.White.copy(alpha = 0.6f)
                 )
@@ -496,55 +660,68 @@ fun PlayerScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 主控制行
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (isLive) {
-                    PlayerControlButton("上一频道", R.drawable.ic_prev, onClick = { switchChannel(-1) })
-                    PlayerControlButton(
-                        label = if (playing) "暂停" else "播放",
-                        iconRes = if (playing) R.drawable.ic_pause else R.drawable.ic_play,
-                        onClick = { togglePlay() }
-                    )
-                    PlayerControlButton("下一频道", R.drawable.ic_next, onClick = { switchChannel(1) })
-                } else {
-                    PlayerControlButton(
-                        label = "上一集",
-                        iconRes = R.drawable.ic_prev,
-                        subLabel = if (epIdx > 0) episodeName(epIdx - 1) else "已是第一集",
-                        onClick = { if (epIdx > 0) playEpisode(srcIdx, epIdx - 1) }
-                    )
-                    PlayerControlButton(
-                        label = if (playing) "暂停" else "播放",
-                        iconRes = if (playing) R.drawable.ic_pause else R.drawable.ic_play,
-                        onClick = { togglePlay() }
-                    )
-                    PlayerControlButton(
-                        label = "下一集",
-                        iconRes = R.drawable.ic_next,
-                        subLabel = if (epIdx < epCount - 1) episodeName(epIdx + 1) else "已是最后一集",
-                        onClick = { if (epIdx < epCount - 1) playEpisode(srcIdx, epIdx + 1) }
-                    )
-                    PlayerControlButton(
-                        label = "倍速",
-                        iconRes = null,
-                        subLabel = "%.2fx".format(speeds[speedIdx]),
-                        onClick = { cycleSpeed() }
-                    )
-                    PlayerControlButton(
-                        label = "循环",
-                        iconRes = null,
-                        subLabel = if (loopOn) "开" else "关",
-                        onClick = { toggleLoop() }
-                    )
-                }
+            // 底部操作栏：上集 · 暂停 · 下集 · 刷新 · 重播 · 倍速 · 解码 · 比例
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PlayerControlButton(
+                    label = if (isLive) "上一频道" else "上集",
+                    iconRes = R.drawable.ic_prev,
+                    subLabel = prevItemName(),
+                    onClick = { gotoPrevItem() }
+                )
+                PlayerControlButton(
+                    label = if (playing) "暂停" else "播放",
+                    iconRes = if (playing) R.drawable.ic_pause else R.drawable.ic_play,
+                    onClick = { togglePlay() }
+                )
+                PlayerControlButton(
+                    label = if (isLive) "下一频道" else "下集",
+                    iconRes = R.drawable.ic_next,
+                    subLabel = nextItemName(),
+                    onClick = { gotoNextItem() }
+                )
+                PlayerControlButton(
+                    label = "刷新",
+                    iconRes = null,
+                    subLabel = "重载当前流",
+                    onClick = { reload() }
+                )
+                PlayerControlButton(
+                    label = "重播",
+                    iconRes = null,
+                    subLabel = "从头播放",
+                    onClick = { replay() }
+                )
+                PlayerControlButton(
+                    label = "倍速",
+                    iconRes = null,
+                    subLabel = "%.2fx".format(speeds[speedIdx]),
+                    onClick = { speedMenuOpen = true }
+                )
+                PlayerControlButton(
+                    label = "解码",
+                    iconRes = null,
+                    subLabel = if (decoderSoftware) "软解优先" else "硬解优先",
+                    onClick = { decoderSoftware = !decoderSoftware }
+                )
+                PlayerControlButton(
+                    label = "比例",
+                    iconRes = null,
+                    subLabel = resizeModes[resizeIdx].second,
+                    onClick = {
+                        val next = (resizeIdx + 1) % resizeModes.size
+                        resizeIdx = next
+                        // 切入全屏（裁剪/拉伸）时收起操作栏，切回「原比例」时重新显示
+                        if (next == 0) showControls() else hideControls()
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 辅助控制行（含全屏/画面比例）
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // 辅助控制行：画质 · 字幕 · 换源 · 收藏 · 后台
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PlayerControlButton(
                     label = "画质",
                     iconRes = null,
@@ -577,12 +754,24 @@ fun PlayerScreen(
                     onClick = { backgroundPlay = !backgroundPlay }
                 )
                 PlayerControlButton(
-                    label = "全屏",
+                    label = "隐藏",
                     iconRes = null,
-                    subLabel = resizeModes[resizeIdx].second,
-                    onClick = { resizeIdx = (resizeIdx + 1) % resizeModes.size }
+                    subLabel = "收起操作栏",
+                    modifier = Modifier.focusRequester(osdFirstFocus),
+                    onClick = { hideControls() }
                 )
             }
+            }
+        }
+
+        // 倍速菜单（播放页按 ↑ 呼出）
+        if (speedMenuOpen) {
+            SpeedMenu(
+                options = speeds,
+                currentIndex = speedIdx,
+                onPick = { idx -> applySpeedIndex(idx); speedMenuOpen = false },
+                onDismiss = { speedMenuOpen = false }
+            )
         }
 
         if (panelOpen) {
@@ -707,7 +896,7 @@ private fun PlayerControlButton(
         shape = CircleShape,
         containerColor = Color(0x33FFFFFF),
         requestFocus = requestFocus,
-        modifier = modifier.width(96.dp)
+        modifier = modifier.width(88.dp)
     ) {
         Column(
             modifier = Modifier.height(96.dp),
@@ -938,4 +1127,57 @@ private fun formatTime(ms: Long): String {
     val m = (totalSec % 3600) / 60
     val s = totalSec % 60
     return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+}
+
+/**
+ * 倍速菜单（播放页按 ↑ 呼出）。
+ * 上下移动焦点，OK 选中并应用；返回键关闭。
+ */
+@Composable
+private fun SpeedMenu(
+    options: List<Float>,
+    currentIndex: Int,
+    onPick: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    BackHandler { onDismiss() }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0x99000000)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .width(320.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xF214171C))
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("倍速", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            options.forEachIndexed { idx, sp ->
+                FocusableSurface(
+                    onClick = { onPick(idx) },
+                    shape = RoundedCornerShape(12.dp),
+                    containerColor = if (idx == currentIndex)
+                        MaterialTheme.colorScheme.surfaceVariant else Color.Transparent,
+                    requestFocus = idx == currentIndex,
+                    modifier = Modifier.fillMaxWidth().height(60.dp)
+                ) { focused ->
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = "%.2fx".format(sp) + if (idx == currentIndex) "（当前）" else "",
+                            fontSize = 22.sp,
+                            fontWeight = if (focused) FontWeight.Bold else FontWeight.Normal,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
