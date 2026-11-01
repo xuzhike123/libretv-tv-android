@@ -71,6 +71,7 @@ import io.github.xuzhike123.libretvtv.data.LocalStore
 import io.github.xuzhike123.libretvtv.data.PendingPlay
 import io.github.xuzhike123.libretvtv.ui.components.FocusableSurface
 import io.github.xuzhike123.libretvtv.ui.util.PlayerKeys
+import io.github.xuzhike123.libretvtv.ui.util.PlayerUiState
 import io.github.xuzhike123.libretvtv.ui.util.onTvKey
 import kotlinx.coroutines.delay
 
@@ -564,6 +565,12 @@ fun PlayerScreen(
     DisposableEffect(player) {
         PlayerKeys.register { key -> handleKey(key) }
         onDispose { PlayerKeys.unregister() }
+    }
+
+    // 切到「裁剪填满 / 拉伸全屏」时通知根布局收起导航栏，让画面占满整屏
+    DisposableEffect(resizeIdx) {
+        PlayerUiState.updateFullscreen(resizeIdx != 0)
+        onDispose { PlayerUiState.updateFullscreen(false) }
     }
 
     Box(

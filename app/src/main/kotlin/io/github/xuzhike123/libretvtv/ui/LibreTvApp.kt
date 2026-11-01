@@ -29,6 +29,7 @@ import io.github.xuzhike123.libretvtv.ui.screens.PlayerScreen
 import io.github.xuzhike123.libretvtv.ui.screens.SearchScreen
 import io.github.xuzhike123.libretvtv.ui.screens.SettingsScreen
 import io.github.xuzhike123.libretvtv.ui.screens.SourcesScreen
+import io.github.xuzhike123.libretvtv.ui.util.PlayerUiState
 import io.github.xuzhike123.libretvtv.ui.util.onTvKey
 import java.net.URLEncoder
 
@@ -66,10 +67,13 @@ fun LibreTvApp() {
                 }
             }
     ) {
-        LibreTvNavRail(
-            selectedRoute = currentRoute,
-            onSelect = { screen -> goto(screen.route) }
-        )
+        // 播放页切到全屏时收起导航栏，让画面真正占满整个屏幕
+        if (!PlayerUiState.fullscreen) {
+            LibreTvNavRail(
+                selectedRoute = currentRoute,
+                onSelect = { screen -> goto(screen.route) }
+            )
+        }
 
         NavHost(
             navController = navController,
