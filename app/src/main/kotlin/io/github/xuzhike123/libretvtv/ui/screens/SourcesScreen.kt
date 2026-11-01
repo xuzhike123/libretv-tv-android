@@ -50,6 +50,7 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
     var showExportDialog by remember { mutableStateOf(false) }
     var showAddLiveDialog by remember { mutableStateOf(false) }
     var newUrl by remember { mutableStateOf("") }
+    var newSubName by remember { mutableStateOf("") }
     var newLiveName by remember { mutableStateOf("") }
     var newLiveUrl by remember { mutableStateOf("") }
     var liveImportError by remember { mutableStateOf("") }
@@ -61,16 +62,21 @@ fun SourcesScreen(modifier: Modifier = Modifier) {
 
     if (showAddDialog) {
         AddSubscriptionDialog(
+            name = newSubName,
             value = newUrl,
             busy = busy,
+            onNameChange = { newSubName = it },
             onValueChange = { newUrl = it },
             onConfirm = {
                 val u = newUrl.trim()
-                if (u.isNotEmpty()) scope.launch { SourceRepository.addSubscription(u) }
+                if (u.isNotEmpty()) {
+                    scope.launch { SourceRepository.addSubscription(u, newSubName) }
+                }
                 newUrl = ""
+                newSubName = ""
                 showAddDialog = false
             },
-            onDismiss = { newUrl = ""; showAddDialog = false }
+            onDismiss = { newUrl = ""; newSubName = ""; showAddDialog = false }
         )
     }
 
@@ -340,8 +346,10 @@ private fun SubscriptionCard(
 
 @Composable
 private fun AddSubscriptionDialog(
+    name: String,
     value: String,
     busy: Boolean,
+    onNameChange: (String) -> Unit,
     onValueChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
@@ -358,9 +366,16 @@ private fun AddSubscriptionDialog(
                 OutlinedTextField(
                     value = value,
                     onValueChange = onValueChange,
-                    label = { Text("LibreTV-SourceList JSON 地址") },
+                    label = { Text("订阅地址 / 采集站接口地址") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = onNameChange,
+                    label = { Text("名称（可选，留空自动识别）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
                 )
                 if (busy) {
                     Text(

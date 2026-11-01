@@ -70,22 +70,44 @@ object SourceRepository {
         }
     }
 
-    /** 新增订阅：拉取远程 JSON 并解析 */
-    suspend fun addSubscription(url: String): Subscription? = withContext(Dispatchers.IO) {
+    /**
+     * 新增订阅：拉取远程 JSON 并解析。
+     *
+     * 名称优先级：手动填写 > 订阅 JSON 里的 name > 站点首页 title > 域名兜底。
+     * 采集站接口本身不返回站名，所以才有后面两级兜底。
+     */
+    suspend fun addSubscription(url: String, preferredName: String = ""): Subscription? =
+        withContext(Dispatchers.IO) {
         val u = url.trim().removeSuffix("/")
         if (u.isEmpty() || !u.startsWith("http", ignoreCase = true)) return@withContext null
         _busy.value = true
         try {
             val raw = fetch(u)
             val (vods, lives) = SourceListParser.parse(raw ?: "", u)
-            val name = try {
+
+            // 形态 4（地址本身就是采集站接口）时 Parser 只能拿域名占位，
+            // 这里补抓一次站点首页 title 换成可读站名
+            val hostName = u.substringAfter("://").substringBefore('/')
+            val siteName = if (vods.size == 1 && vods[0].name == hostName) {
+                fetchSiteName(u)
+            } else null
+
+            val manual = preferredName.trim()
+            val jsonName = try {
                 JSONObject(raw ?: "{}").optString("name", "")
             } catch (_: Exception) { "" }
+            val finalName = manual.ifEmpty { jsonName.ifEmpty { siteName ?: hostName } }
+
+            val namedVods = when {
+                manual.isNotEmpty() && vods.size == 1 -> vods.map { it.copy(name = manual) }
+                siteName != null -> vods.map { it.copy(name = siteName) }
+                else -> vods
+            }
+
             val sub = Subscription(
                 url = u,
-                name = name,
-                version = try { JSONObject(raw ?: "{}").optInt("version", 0) } catch (_: Exception) { 0 },
-                vodSources = vods,
+                name = finalName,
+                vodSources = namedVods,
                 liveSources = lives,
                 syncedAt = System.currentTimeMillis(),
                 lastError = if (vods.isEmpty() && lives.isEmpty()) "解析结果为空，请检查地址格式" else "",
@@ -183,6 +205,45 @@ object SourceRepository {
             .build()
         val resp = client.newCall(req).execute()
         if (resp.isSuccessful) resp.body?.string() else null
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * 采集站接口本身不返回站点名（实测顶层只有 code/msg/page/pagecount/limit/total/list，
+     * 其中 msg 恒为「数据列表」这类通用文案），所以退一步抓站点首页的 <title> 来推断名称。
+     *
+     * 实测样本：
+     *   360zy.com        → "360资源站【360zy.com】 - 苹果cms - 海洋cms - 影视站采集" → 360资源站
+     *   iqiyizyapi.com   → "爱奇艺资源站-iqiyizy.com"                              → 爱奇艺资源站
+     *   api.maoyanapi.top→ "功能模块及系统标签等等介绍 - 苹果CMS"（通用文案，无效）→ 回退域名
+     */
+    private fun fetchSiteName(url: String): String? = try {
+        val home = url.substringBefore("?").let { p ->
+            val i = p.indexOf("/api.php")
+            val j = p.indexOf("/provide/vod")
+            val cut = listOf(i, j).filter { it > 0 }.minOrNull()
+            (if (cut != null) p.substring(0, cut) else p).trimEnd('/')
+        }
+        val host = home.substringAfter("://").substringBefore('/')
+        if (host.isEmpty()) return null
+        val html = fetch("$home/") ?: return null
+
+        val raw = Regex("<title>(.*?)</title>", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.trim() ?: return null
+
+        // 取分隔符前的第一段作为站名候选，再去掉括号里的域名尾巴
+        var name = raw.split("-", "—", "｜", "|")[0].trim()
+        name = Regex("【[^】]*】|\\[[^]]*]|\\([^)]*\\)|（[^）]*）").replace(name, "").trim()
+
+        // 只丢弃「CMS 默认文案」：如「功能模块及系统标签等等介绍 - 苹果CMS」。
+        // 注意别把正常站名误杀——实测「最大资源采集网」是有效站名，
+        // 早期版本因含"资源采集"被判为噪音而退回域名，这里已剔除该词。
+        val cmsDefaults = listOf("苹果cms", "苹果CMS", "海洋CMS", "海洋cms",
+            "cms", "CMS", "功能模块", "系统标签", "模板")
+        if (cmsDefaults.any { name.contains(it, ignoreCase = true) }) return null
+        if (name.isEmpty() || name.equals(host, ignoreCase = true)) return null
+        name.take(24)
     } catch (_: Exception) {
         null
     }
