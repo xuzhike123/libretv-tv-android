@@ -2,8 +2,10 @@ package io.github.xuzhike123.libretvtv.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,9 +21,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
@@ -98,22 +100,32 @@ fun SearchScreen(
             )
 
             if (!hasSearched) {
-                val letters = remember { ('A'..'Z').map { it.toString() } }
-                val digits = remember { ('0'..'9').map { it.toString() } }
-                val keys = remember { digits + letters }
+                // 4 行 × 9 列 = 36 格，正好放下 10 个数字 + 26 个字母
+                val keys = remember { ('0'..'9').map { it.toString() } + ('A'..'Z').map { it.toString() } }
                 keys.chunked(9).forEach { rowKeys ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rowKeys.forEach { key ->
-                            KeyButton(text = key, onClick = { if (query.length < 24) query += key })
+                            KeyButton(
+                                text = key,
+                                modifier = Modifier.weight(1f),
+                                onClick = { if (query.length < 24) query += key }
+                            )
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    KeyButton(text = "空格", width = 2, onClick = { query += " " })
-                    KeyButton(text = "删除", width = 2, onClick = { query = query.dropLast(1) })
-                    KeyButton(text = "清空", width = 2, onClick = { query = "" })
-                    KeyButton(text = "搜索", width = 2, onClick = { scope.launch { doSearch(query) } })
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    KeyButton(text = "空格", modifier = Modifier.weight(2f), onClick = { query += " " })
+                    KeyButton(text = "删除", modifier = Modifier.weight(2f), onClick = { query = query.dropLast(1) })
+                    KeyButton(text = "清空", modifier = Modifier.weight(2f), onClick = { query = "" })
+                    KeyButton(text = "搜索", modifier = Modifier.weight(2f), onClick = { scope.launch { doSearch(query) } })
                 }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "遥控器：方向键移动焦点，OK 输入；右侧为说明",
+                    fontSize = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             } else {
                 if (searching) {
                     Text("正在检索 ${SourceRepository.enabledVodSources().size} 个点播源…", fontSize = 24.sp, color = MaterialTheme.colorScheme.primary)
@@ -154,7 +166,7 @@ fun SearchScreen(
             }
         }
 
-        Column(modifier = Modifier.width(420.dp)) {
+        Column(modifier = Modifier.width(300.dp)) {
             if (!hasSearched) {
                 SectionHeader(title = "搜索提示")
                 Text(
@@ -185,26 +197,31 @@ private fun toItem(v: CmsVideo): VideoItem = VideoItem(
     pic = v.pic
 )
 
+/**
+ * 屏上键盘按键。
+ *
+ * 宽度不写死、由调用方给 weight 均分：4×9 键盘在窄屏（如 720p 电视）
+ * 也不会因为 9 个固定宽度按键挤不下而被裁掉。
+ */
 @Composable
 private fun KeyButton(
     text: String,
-    width: Int = 1,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val buttonWidth: Dp = 88.dp * width
     FocusableSurface(
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
-            .height(70.dp)
-            .width(buttonWidth)
+        modifier = modifier.height(70.dp)
     ) {
-        Text(
-            text = text,
-            fontSize = 26.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = text,
+                fontSize = 26.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }

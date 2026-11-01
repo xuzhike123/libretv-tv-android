@@ -1,6 +1,7 @@
 package io.github.xuzhike123.libretvtv.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -59,12 +60,40 @@ object AppleCmsClient {
         out
     }
 
-    /** 最近更新（不带关键词，取首页） */
+    /** 最近更新（不带关键词，取指定页） */
     suspend fun latest(source: VodSource, page: Int = 1): List<CmsVideo> = withContext(Dispatchers.IO) {
         val url = buildUrl(source.url, mapOf("ac" to "videolist", "pg" to page.toString()))
         val raw = getText(url) ?: return@withContext emptyList()
         parseList(raw, source) ?: emptyList()
     }
+
+    /**
+     * 最近更新（合并前 N 页，按影片 ID 去重）。
+     * 首页要按「电影 / 电视 / 动漫 / 综艺 / 体育 / 其他」分类展示，
+     * 单页通常只有 20 条，分完类每类所剩无几，所以多拉几页再分。
+     */
+    suspend fun latestMulti(source: VodSource, pages: Int = 3): List<CmsVideo> =
+        withContext(Dispatchers.IO) {
+            // 并行取页（串行要等 N 个往返，网络差时会明显卡顿）
+            val jobs = (1..pages).map { pg ->
+                async {
+                    try {
+                        val url = buildUrl(source.url, mapOf("ac" to "videolist", "pg" to pg.toString()))
+                        val raw = getText(url) ?: return@async emptyList()
+                        parseList(raw, source) ?: emptyList()
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+            }
+            val out = mutableListOf<CmsVideo>()
+            val seen = LinkedHashSet<String>()
+            // 按页序合并，保证「越新越靠前」
+            jobs.forEach { job ->
+                job.await().forEach { if (seen.add(it.vodId)) out.add(it) }
+            }
+            out
+        }
 
     /** 详情：含剧集（支持多播放源） */
     suspend fun detail(source: VodSource, vodId: String): CmsDetail? = withContext(Dispatchers.IO) {
